@@ -27,16 +27,15 @@ for ecc in [0.1, 0.05, 0.01]:
     _,_,omg22 = h_eob.load_hlm(2,2)
 
     # Compute the eccentricities
-    #ecc_omega,omg_p,omg_a = h_eob.ecc_omega()
     ecc_radial            = h_eob.ecc_radial()
     e_pn                  = h_eob.ecc_3PN()
 
     # Plot
     p= plt.plot(h_eob.t, ecc_radial,    label=r'$e=$ '+str(ecc))
-    #plt.semilogy(h_eob.t, ecc_omega,  label=str(ecc))
     plt.plot(h_eob.dyn['t'],  e_pn,  linestyle='--', color=p[0].get_color())
 
 plt.xlabel(r'$t/M $')
 plt.ylabel('e')
 plt.legend()
-plt.savefig('../figs/bns_ecc_evolution.png')  
+plt.savefig('../figs/bns_ecc_evolution.png')
+
