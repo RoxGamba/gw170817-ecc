@@ -1,4 +1,3 @@
-import numpy as np
 """
 Class for EOB Py waveforms; computes various quantities
 RG, 05/22
@@ -58,15 +57,54 @@ def CreateDict(M=1, q=1, chi1z=0., chi2z=0, l1=0, l2=0, ecc=0.1, iota=0, f0=20.,
     'use_geometric_units': use_geom,
     'interp_uniform_grid': interp,
     'domain'             : 0,
-    # 'output_dynamics'    : 1,
+     # 'output_dynamics'    : 1,
     'srate_interp'       : srate,
     'inclination'        : iota,
     'output_hpc'         : 0,
     'use_mode_lm'        : [1],      # List of modes to use
     'arg_out'            : arg_out,  # output dynamics and hlm in addition to h+, hx
     'ecc_freq'           : ecc_freq,      #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+    'ecc_ics'            : 1
     }
     return pardic
+
+def interp_qnt(x, y, x_new):
+    f = interpolate.interp1d(x, y, bounds_error=False, fill_value=(0,0))
+    yn= f(x_new)
+    return yn
+
+# function to compute envelope, taken from stack overflow
+def hl_envelopes_idx(s, dmin=1, dmax=1, split=False):
+    """
+    Input :
+    s: 1d-array, data signal from which to extract high and low envelopes
+    dmin, dmax: int, optional, size of chunks, use this if the size of the input signal is too big
+    split: bool, optional, if True, split the signal in half along its mean, might help to generate the envelope in some cases
+    Output :
+    lmin,lmax : high/low envelope idx of input signal s
+    """
+
+    # locals min      
+    lmin = (np.diff(np.sign(np.diff(s))) > 0).nonzero()[0] + 1 
+    # locals max
+    lmax = (np.diff(np.sign(np.diff(s))) < 0).nonzero()[0] + 1 
+    
+
+    if split:
+        # s_mid is zero if s centered around x-axis or more generally mean of signal
+        s_mid = np.mean(s) 
+        # pre-sorting of locals min based on relative position with respect to s_mid 
+        lmin = lmin[s[lmin]<s_mid]
+        # pre-sorting of local max based on relative position with respect to s_mid 
+        lmax = lmax[s[lmax]>s_mid]
+
+
+    # global max of dmax-chunks of locals max 
+    lmin = lmin[[i+np.argmin(s[lmin[i:i+dmin]]) for i in range(0,len(lmin),dmin)]]
+    # global min of dmin-chunks of locals min 
+    lmax = lmax[[i+np.argmax(s[lmax[i:i+dmax]]) for i in range(0,len(lmax),dmax)]]
+    
+    return lmin,lmax
 
 VERBOSE = 0
 
@@ -143,25 +181,6 @@ class Waveform_PyEOB(object):
         E, j = dyn['E'], dyn['Pphi']
         Eb = (E-1)/nu
         return Eb, j
-    
-    def cut_at_max_omega(self):
-        """
-        Cut the waveforms at the maximum of the orbital frequency
-        """
-
-        omg = self.dyn['MOmega'] 
-        i_cut_dyn = np.argmax(omg)
-        t_cut = self.dyn['t'][i_cut_dyn]
-        if(self.pars['use_geometric_units'] == 0):
-            t_cut = t_cut*self.pars['M']*Msuns
-
-        i_cut_wf = find_nearest(self.t, t_cut)
-
-        self.t  = self.t[:i_cut_wf]
-        self.hp = self.hp[:i_cut_wf] 
-        self.hc = self.hc[:i_cut_wf] 
-
-        return i_cut_wf
 
     def find_merger(self, dynamics=False):
         """
@@ -169,7 +188,6 @@ class Waveform_PyEOB(object):
         based on A22
         """
         from scipy.signal import find_peaks; 
-        from scipy import interpolate
 
         A, p, omg = self.load_hlm(2,2)
         
@@ -186,15 +204,72 @@ class Waveform_PyEOB(object):
         
         if (dynamics):
             Eb, j = self.compute_energetics()
-            fE = interpolate.interp1d(self.dyn['t'], Eb)
-            fj = interpolate.interp1d(self.dyn['t'], j)
-            Eb_mrg = fE(t_mrg)
-            j_mrg  = fj(t_mrg)
+            Eb_mrg = interp_qnt(self.dyn['t'], Eb, t_mrg) 
+            j_mrg  = interp_qnt(self.dyn['t'], j , t_mrg)
             return t_mrg, A_mrg, p_mrg, omg_mrg, Eb_mrg, j_mrg
 
         return t_mrg, A_mrg, p_mrg, omg_mrg
 
-    def interp_qnt(self, x, y, x_new):
-        f = interpolate.interp1d(x, y, bounds_error=False, fill_value=(0,0))
-        yn= f(x_new)
-        return yn
+    def ecc_omega(self):
+        """
+        Compute the eccentricity evolution from omega
+        """
+        _,_, omega_22 = self.load_hlm(2,2)
+        omg_a, omg_p  = hl_envelopes_idx(omega_22)        
+        omg_p = interp_qnt(self.t[omg_p], omega_22[omg_p], self.t)
+        omg_a = interp_qnt(self.t[omg_a], omega_22[omg_a], self.t)
+        ecc_omg = (omg_p**(0.5) - omg_a**(0.5))/(omg_p**(0.5)+omg_a**(0.5))
+        return ecc_omg, omg_p, omg_a
+
+    def ecc_3PN(self):
+        """
+        Eq. 4.8 of https://arxiv.org/pdf/1507.07100.pdf
+        e_t in Harmonic coordinates
+        """
+
+        q  = self.pars['q']
+        nu = q/(1+q)**2 
+        nu2 = nu*nu
+        nu3 = nu2*nu 
+
+        Pi = np.pi
+        Pi2 = Pi*Pi
+    
+        Eb, pph = self.compute_energetics()
+        xi  = -Eb*pph**2
+
+        e_0PN  = 1-2*xi
+        e_1PN  = -4.-2*nu+ (-1 + 3*nu)*xi
+        e_2PN  = (20.-23*nu)/xi -22. + 60*nu + 3*nu2 - (31*nu+4*nu2)*xi
+        e_3PN  = (-2016 + (5644 - 123*Pi2)*nu -252*nu2)/(12*xi*xi) + (4848 +(-21128 + 369*Pi2)*nu + 2988*nu2)/(24*xi) - 20 + 298*nu - 186*nu2 - 4*nu3 + (-1*30.*nu + 283./4*nu2 + 5*nu3)*xi
+        return np.sqrt(Eb*(Eb*(Eb*e_3PN + e_2PN) + e_1PN) + e_0PN)
+
+    def ecc_radial(self):
+        """
+        """
+        r     = self.dyn['r']
+        t     = self.dyn['t']
+        rdot    = np.zeros_like(r)        
+        rdot[1:]= np.diff(r)/np.diff(t)
+        e_r = rdot*r**(0.5)
+
+        _, e_r_env = hl_envelopes_idx(e_r)
+        e_r = interp_qnt(t[e_r_env], e_r[e_r_env], self.t)
+        return e_r
+
+    def ecc_radial_a(self):
+        """
+        e_A = r^2*ddot{r}
+        https://arxiv.org/pdf/1810.03521.pdf
+        """
+        r         = self.dyn['r']
+        t         = self.dyn['t']
+        rdot      = np.zeros_like(r)
+        rddot     = np.zeros_like(r)
+        rdot[1:]  = np.diff(r)/np.diff(t)
+        rddot[1:] = np.diff(rdot)/np.diff(t) 
+        e_A       = rddot*r**2
+
+        _, e_A_env = hl_envelopes_idx(e_A)
+        e_A = interp_qnt(t[e_A_env], e_A[e_A_env], self.t)
+        return e_A
