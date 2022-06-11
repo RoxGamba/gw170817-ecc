@@ -74,7 +74,7 @@ latex_labels ={
         'distance'  : r'$D_L$ [Mpc]',
         'energy'    : r'$\hat{E}^0$',
         'angmom'    : r'$p^0_{\varphi}$',
-        'ecc'       : r'$e^0$',
+        'eccentricity'       : r'$e^0$',
         'omg0'      : r'$\omega^0$',
         'ra'        : r'ra',
         'dec'       : r'dec',
@@ -174,13 +174,12 @@ class Posterior():
 
     def plot_corner(self, parlist, color='b', figure=None):
 
-        print(parlist)
-
         pars   = []
         labels = []   
 
         for i in parlist:
             if i in self.post.keys():
+                print("...plotting ", i)
                 pars.append(self.post[i])
                 labels.append(latex_labels[i])
         

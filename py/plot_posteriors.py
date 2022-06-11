@@ -35,7 +35,7 @@ parser.add_option('--lambda2',  action='store_true', default=False, help='tidal 
 parser.add_option('--lambdat',   action='store_true', default=False, help='lambdat')
 parser.add_option('--delta_lambda',   action='store_true', default=False, help='delta_lambda')
 # eccentricity
-parser.add_option('--ecc',      action='store_true', default=False, help='eccentricity at reference frequency')
+parser.add_option('--eccentricity', action='store_true', default=False, help='eccentricity at reference frequency')
 parser.add_option('--omg0',     action='store_true', default=False, help='initial frequency of the approximant')
 # hyp
 parser.add_option('--energy',   action='store_true', default=False,help='Energy at r0')
@@ -69,3 +69,5 @@ for fl, cols in zip(opts.fname, opts.color):
             if(opts.__getattribute__(i)):
                 ks.append(i)
     f = post.plot_corner(ks, color=cols, figure=f)
+
+plt.show()
