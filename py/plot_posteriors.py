@@ -1,6 +1,6 @@
 """
 Generate plots with e.g.
-python3 plot_posteriors.py --f ../../PE/posterior_190412_prec.dat --mchirp --q --color royalblue
+python3 plot_posteriors.py --f ../PE/injections/R01/posterior.dat --mchirp --q --lambdat --eccentricity --tidal --aligned --color royalblue
 """
 
 import numpy as np; import optparse as op; import matplotlib.pyplot as plt
